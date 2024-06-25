@@ -90,7 +90,7 @@ def main():
     
     for line in log_lines:
         match line[1]:
-            #The index is stored first, followed by the username in ClientUserinfoChanged
+            #The index is stored first, followed by the username in a subsequent ClientUserinfoChanged event
             case "ClientConnect:":
                 match.add_player_index(line[2])
             #When a client info is changed, the username is contained in n\Dono da Bola\t, so the indexes of n and t are used to obtain the name inbetween
