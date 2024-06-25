@@ -1,6 +1,7 @@
-from enum import Enum
+import json
 import re
 
+#This divides the words in a log line whenever a ' ' or a '\' character appears.
 def read_log_file(log_path):
     lines = []
     with open(log_path, 'r') as file:
@@ -9,37 +10,6 @@ def read_log_file(log_path):
             words = [word for word in words if word]
             lines.append(words)
     return lines
-
-class DeathCausesCount:
-    MOD_UNKNOWN = 0
-    MOD_SHOTGUN = 0
-    MOD_GAUNTLET = 0
-    MOD_MACHINEGUN = 0
-    MOD_GRENADE = 0
-    MOD_GRENADE_SPLASH = 0
-    MOD_ROCKET = 0
-    MOD_ROCKET_SPLASH = 0
-    MOD_PLASMA = 0
-    MOD_PLASMA_SPLASH = 0
-    MOD_RAILGUN = 0
-    MOD_LIGHTNING = 0
-    MOD_BFG = 0
-    MOD_BFG_SPLASH = 0
-    MOD_WATER = 0
-    MOD_SLIME = 0
-    MOD_LAVA = 0
-    MOD_CRUSH = 0
-    MOD_TELEFRAG = 0
-    MOD_FALLING = 0
-    MOD_SUICIDE = 0
-    MOD_TARGET_LASER = 0
-    MOD_TRIGGER_HURT = 0
-    MOD_NAIL = 0
-    MOD_CHAINGUN = 0
-    MOD_PROXIMITY_MINE = 0
-    MOD_KAMIKAZE = 0
-    MOD_JUICED = 0
-    MOD_GRAPPLE = 0
     
 def find_delete_player(players_array, players_index_array, player_index):
     for i in range(len(players_index_array)):
@@ -58,7 +28,7 @@ class Game:
         self.players = []
         self.players_index = []
         self.kills = {}
-        self.kills_by_means = DeathCausesCount()
+        self.kills_by_means = {}
     
     def add_player_index(self,player_index):
         self.players_index.append(player_index)
@@ -83,26 +53,30 @@ class Game:
     def add_kill(self, player_name, death_cause):
         self.total_kills += 1
         self.kills[player_name] += 1
-        setattr(self.kills_by_means, death_cause, getattr(self.kills_by_means, death_cause) + 1)
+        if death_cause in self.kills_by_means:
+            self.kills_by_means[death_cause] += 1
+        else:
+            self.kills_by_means[death_cause] = 1
     
     def world_self_kill(self, player_name, death_cause):
         self.total_kills += 1
         self.kills[player_name] -= 1
-        setattr(self.kills_by_means, death_cause, getattr(self.kills_by_means, death_cause) + 1)
+        if death_cause in self.kills_by_means:
+            self.kills_by_means[death_cause] += 1
+        else:
+            self.kills_by_means[death_cause] = 1
         
     def report(self):
-        print(f"{self.name}:")
-        print(f"  Total kills: {self.total_kills}")
-        print("  Players and kills:")
-        for player, kills in self.kills.items():
-            print(f"    {player}: {kills}")
-        print("  Death causes:")
-        if self.total_kills != 0:
-            kill_causes = vars(self.kills_by_means)
-            formatted_causes = ', '.join(f"{k} = {v}" for k, v in kill_causes.items())
-            print(f"    {formatted_causes}")
-        else:
-            print("    No kills occurred")
+        game_info = {
+            self.name: {
+                "total_kills": self.total_kills,
+                "players": self.players,
+                "kills": self.kills,
+                "kills_by_means": self.kills_by_means
+            }
+        }
+        game_info = json.dumps(game_info, indent=2)
+        print(game_info)
         print()
 
 def main():
@@ -110,16 +84,18 @@ def main():
     
     log_lines = read_log_file(log_path)
     
-    matches = []
     game_number = 1
     game_name = 'game_' + str(game_number)
     match = Game(game_name)
     
     for line in log_lines:
         match line[1]:
+            #The index is stored first, followed by the username in ClientUserinfoChanged
             case "ClientConnect:":
                 match.add_player_index(line[2])
+            #When a client info is changed, the username is contained in n\Dono da Bola\t, so the indexes of n and t are used to obtain the name inbetween
             case "ClientUserinfoChanged:":
+                #This checks if ClientUserinfoChanged was called right after ClientConnect
                 if len(match.players) == len(match.players_index):
                     n_index = 3
                     t_index = line.index('t')
@@ -132,26 +108,26 @@ def main():
                     match.add_player_name(player_name)
             case "ClientDisconnect:":
                 match.delete_player(line[2])
+            #The 'Kill' line is assumed to always be in the shape of "(number with fixed position in line array): x killed y by z" 
             case "Kill:":
-                first_player_index = 4
+                fixed_number_index = 4
                 killed_index = line.index('killed')
                 by_index = line.index('by')
                 death_cause = line[by_index+1]
-                killer_player = ' '.join(line[first_player_index+1:killed_index])
+                killer_player = ' '.join(line[fixed_number_index+1:killed_index])
                 killed_player = ' '.join(line[killed_index+1:by_index])
                 if killer_player == "<world>" or killer_player == killed_player:
                     match.world_self_kill(killed_player, death_cause)
                 else:
                     match.add_kill(killer_player, death_cause)
             case "ShutdownGame:":
-                matches.append(match)
                 match.report()
                 game_number += 1
                 game_name = 'game_' + str(game_number)
                 match = Game(game_name)
             case "InitGame:":
+                #This was done because of line 97 in the log, where a ShutdownGame is omitted.
                 if len(match.players) != 0:            
-                    matches.append(match)
                     match.report()
                     game_number += 1
                     game_name = 'game_' + str(game_number)
